@@ -1,0 +1,19 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "",
+        "limitSymbolsToIncludedHeaders": true
+      },
+      "includePath": [
+        "/home/jxl/jxl/LVI-SAM_ws/devel/include/**",
+        "/opt/ros/noetic/include/**",
+        "/home/jxl/jxl/lio_ws/src/direct_lidar_odometry/include/**",
+        "/home/jxl/jxl/LVI-SAM_ws/src/robot_localization/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS"
+    }
+  ],
+  "version": 4
+}
