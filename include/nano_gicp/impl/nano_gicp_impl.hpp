@@ -53,7 +53,8 @@ NanoGICP<PointSource, PointTarget>::NanoGICP() {
 #else
   num_threads_ = 1;
 #endif
-
+  
+  std::cout<<"num_threads_ = "<<num_threads_<<"\n";
   k_correspondences_ = 20;
   reg_name_ = "NanoGICP";
   corr_dist_threshold_ = std::numeric_limits<float>::max();
@@ -202,7 +203,7 @@ void NanoGICP<PointSource, PointTarget>::update_correspondences(const Eigen::Iso
     const auto& cov_A = source_covs_[i];
     const auto& cov_B = target_covs_[target_index];
 
-    Eigen::Matrix4d RCR = cov_B + trans.matrix() * cov_A * trans.matrix().transpose();
+    Eigen::Matrix4d RCR = cov_B + trans.matrix() * cov_A * trans.matrix().transpose(); //公式3，5
     RCR(3, 3) = 1.0;
 
     mahalanobis_[i] = RCR.inverse();
@@ -212,7 +213,7 @@ void NanoGICP<PointSource, PointTarget>::update_correspondences(const Eigen::Iso
 
 template <typename PointSource, typename PointTarget>
 double NanoGICP<PointSource, PointTarget>::linearize(const Eigen::Isometry3d& trans, Eigen::Matrix<double, 6, 6>* H, Eigen::Matrix<double, 6, 1>* b) {
-  update_correspondences(trans);
+  update_correspondences(trans); //根据当前次迭代的x0,计算每个点的correspondance
 
   double sum_errors = 0.0;
   std::vector<Eigen::Matrix<double, 6, 6>, Eigen::aligned_allocator<Eigen::Matrix<double, 6, 6>>> Hs(num_threads_);
@@ -238,7 +239,7 @@ double NanoGICP<PointSource, PointTarget>::linearize(const Eigen::Isometry3d& tr
     const Eigen::Vector4d transed_mean_A = trans * mean_A;
     const Eigen::Vector4d error = mean_B - transed_mean_A;
 
-    sum_errors += error.transpose() * mahalanobis_[i] * error;
+    sum_errors += error.transpose() * mahalanobis_[i] * error; //公式3，5
 
     if (H == nullptr || b == nullptr) {
       continue;
@@ -348,7 +349,7 @@ bool NanoGICP<PointSource, PointTarget>::calculate_covariances(
           break;
       }
 
-      covariances[i].setZero();
+      covariances[i].setZero();//通过knn求得一个点周围20个最近邻points,计算covariance, 通过对cov进行svd分解得到一个点的cov。
       covariances[i].template block<3, 3>(0, 0) = svd.matrixU() * values.asDiagonal() * svd.matrixV().transpose();
     }
   }

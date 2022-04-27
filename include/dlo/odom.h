@@ -22,7 +22,9 @@ public:
 
   void start();
   void stop();
-
+  
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  
 private:
 
   void abortTimerCB(const ros::TimerEvent& e);
@@ -58,7 +60,7 @@ private:
   void updateKeyframes();
   void computeConvexHull();
   void computeConcaveHull();
-  void pushSubmapIndices(std::vector<float> dists, int k);
+  void pushSubmapIndices(std::vector<float> dists, int k, std::vector<int> frames);
   void getSubmapKeyframes();
 
   void debug();
@@ -79,7 +81,7 @@ private:
   Eigen::Vector3f origin;
   std::vector<std::pair<Eigen::Vector3f, Eigen::Quaternionf>> trajectory;
   std::vector<std::pair<std::pair<Eigen::Vector3f, Eigen::Quaternionf>, pcl::PointCloud<PointType>::Ptr>> keyframes;
-  std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
+  std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals; //所有keyframes的covariance
 
   std::atomic<bool> dlo_initialized;
   std::atomic<bool> imu_calibrated;
@@ -89,19 +91,19 @@ private:
 
   pcl::PointCloud<PointType>::Ptr original_scan;
   pcl::PointCloud<PointType>::Ptr current_scan;
-  pcl::PointCloud<PointType>::Ptr current_scan_t;
+  pcl::PointCloud<PointType>::Ptr current_scan_t; //curr scan in map
 
-  pcl::PointCloud<PointType>::Ptr keyframes_cloud;
+  pcl::PointCloud<PointType>::Ptr keyframes_cloud; //所有的keyframes
   pcl::PointCloud<PointType>::Ptr keyframe_cloud;
   int num_keyframes;
 
-  pcl::ConvexHull<PointType> convex_hull;
-  pcl::ConcaveHull<PointType> concave_hull;
+  pcl::ConvexHull<PointType> convex_hull; //点云凸包检测
+  pcl::ConcaveHull<PointType> concave_hull; //点云凹包检测
   std::vector<int> keyframe_convex;
   std::vector<int> keyframe_concave;
 
-  pcl::PointCloud<PointType>::Ptr submap_cloud;
-  std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>> submap_normals;
+  pcl::PointCloud<PointType>::Ptr submap_cloud; //关键帧构成的local map
+  std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>> submap_normals; //local map的covariances
 
   std::vector<int> submap_kf_idx_curr;
   std::vector<int> submap_kf_idx_prev;
@@ -116,10 +118,10 @@ private:
   double prev_frame_stamp;
   std::vector<double> comp_times;
 
-  nano_gicp::NanoGICP<PointType, PointType> gicp_s2s;
-  nano_gicp::NanoGICP<PointType, PointType> gicp;
+  nano_gicp::NanoGICP<PointType, PointType> gicp_s2s; //核心： scan-to-scan 
+  nano_gicp::NanoGICP<PointType, PointType> gicp; //scan-to-localmap
 
-  pcl::CropBox<PointType> crop;
+  pcl::CropBox<PointType> crop; //过滤立方体内或者外的点
   pcl::VoxelGrid<PointType> vf_scan;
   pcl::VoxelGrid<PointType> vf_submap;
 
@@ -128,19 +130,19 @@ private:
 
   geometry_msgs::PoseStamped pose_ros;
 
-  Eigen::Matrix4f T;
-  Eigen::Matrix4f T_s2s, T_s2s_prev;
+  Eigen::Matrix4f T; //scan2localmap得到的每一帧在map下的位姿
+  Eigen::Matrix4f T_s2s, T_s2s_prev; //T_s2s：当前帧在map下的guess位姿；  T_s2s_prev：上一帧在map下的位姿
   Eigen::Quaternionf q_final;
 
-  Eigen::Vector3f pose_s2s;
-  Eigen::Matrix3f rotSO3_s2s;
-  Eigen::Quaternionf rotq_s2s;
+  Eigen::Vector3f pose_s2s;  //没有什么用处
+  Eigen::Matrix3f rotSO3_s2s; //没有什么用处
+  Eigen::Quaternionf rotq_s2s; //没有什么用处
 
-  Eigen::Vector3f pose;
+  Eigen::Vector3f pose; //curr keyframe position
   Eigen::Matrix3f rotSO3;
-  Eigen::Quaternionf rotq;
+  Eigen::Quaternionf rotq; //keyframe rot
 
-  Eigen::Matrix4f imu_SE3;
+  Eigen::Matrix4f imu_SE3; //相邻两帧scan间的imu gyro积分得到prior rot
 
   struct XYZd {
     double x;
@@ -170,7 +172,7 @@ private:
   };
 
   struct Metrics {
-    std::vector<float> spaciousness;
+    std::vector<float> spaciousness; //每一帧scan的spaciousness
   };
 
   Metrics metrics;

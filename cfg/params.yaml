@@ -12,7 +12,7 @@ dlo:
   odomNode:
 
     initialPose:
-      use: false
+      use: false  #false: 在初始化阶段(机器静止状态)计算imu的roll, pitch
       position:
         x: 0.0
         y: 0.0
@@ -29,10 +29,10 @@ dlo:
         size: 1.0
       voxelFilter:
         scan:
-          use: true
-          res: 0.25
+          use: true #每帧scan是否进行降采样
+          res: 0.25 #每帧scan降采样分辨率
         submap:
-          use: true
+          use: true #每帧scan在作为keyframe时，是否继续进一步降采样
           res: 0.5
 
     keyframe:
@@ -41,7 +41,7 @@ dlo:
 
     submap:
       keyframe:
-        knn: 10
+        knn: 10  #10帧keyframes构成local map
         kcv: 10
         kcc: 10
 

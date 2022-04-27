@@ -119,7 +119,7 @@ dlo::OdomNode::OdomNode(ros::NodeHandle node_handle) : nh(node_handle) {
   this->gicp.setSearchMethodSource(temp, true);
   this->gicp.setSearchMethodTarget(temp, true);
 
-  this->crop.setNegative(true);
+  this->crop.setNegative(true); //立方体内的点去除
   this->crop.setMin(Eigen::Vector4f(-this->crop_size_, -this->crop_size_, -this->crop_size_, 1.0));
   this->crop.setMax(Eigen::Vector4f(this->crop_size_, this->crop_size_, this->crop_size_, 1.0));
 
@@ -475,23 +475,23 @@ void dlo::OdomNode::initializeInputTarget() {
 
   // Convert ros message
   this->target_cloud = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
-  this->target_cloud = this->current_scan;
+  this->target_cloud = this->current_scan; //第0帧scan: 处理的第一帧scan
   this->gicp_s2s.setInputTarget(this->target_cloud);
   this->gicp_s2s.calculateTargetCovariances();
 
   // initialize keyframes
   pcl::PointCloud<PointType>::Ptr first_keyframe (new pcl::PointCloud<PointType>);
-  pcl::transformPointCloud (*this->target_cloud, *first_keyframe, this->T);
+  pcl::transformPointCloud (*this->target_cloud, *first_keyframe, this->T); //T: gravityAlign()中得到roll, pitch
 
   // voxelization for submap
   if (this->vf_submap_use_) {
     this->vf_submap.setInputCloud(first_keyframe);
-    this->vf_submap.filter(*first_keyframe);
+    this->vf_submap.filter(*first_keyframe); //第0帧keyframe在前面preprocessPoints()中已经filter过一次
   }
 
   // keep history of keyframes
-  this->keyframes.push_back(std::make_pair(std::make_pair(this->pose, this->rotq), first_keyframe));
-  *this->keyframes_cloud += *first_keyframe;
+  this->keyframes.push_back(std::make_pair(std::make_pair(this->pose, this->rotq), first_keyframe)); 
+  *this->keyframes_cloud += *first_keyframe; //map: origin：第0帧scan的位置; attitude: 第0帧scan重力对齐后的姿态
   *this->keyframe_cloud = *first_keyframe;
 
   // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be overwritten by setInputSources())
@@ -519,11 +519,11 @@ void dlo::OdomNode::setInputSources(){
   this->gicp_s2s.setInputSource(this->current_scan);
 
   // set pcl::Registration input source for S2M gicp using custom NanoGICP function
-  this->gicp.registerInputSource(this->current_scan);
+  this->gicp.registerInputSource(this->current_scan); //s2m会使用s2s的kd-tree and covariance, 所以没有用setInputSource()
 
   // now set the KdTree of S2M gicp using previously built KdTree
   this->gicp.source_kdtree_ = this->gicp_s2s.source_kdtree_;
-  this->gicp.source_covs_.clear();
+  this->gicp.source_covs_.clear(); //在getNextPose()中设置为gicp_s2s.source_covs_
 
 }
 
@@ -659,7 +659,7 @@ void dlo::OdomNode::icpCB(const sensor_msgs::PointCloud2ConstPtr& pc) {
   }
 
   // Set initial frame as target
-  if(this->target_cloud == nullptr) {
+  if(this->target_cloud == nullptr) {//只处理0th scan 
     this->initializeInputTarget();
     return;
   }
@@ -771,13 +771,13 @@ void dlo::OdomNode::imuCB(const sensor_msgs::Imu::ConstPtr& imu) {
     this->imu_meas.ang_vel.y = ang_vel[1] - this->imu_bias.gyro.y;
     this->imu_meas.ang_vel.z = ang_vel[2] - this->imu_bias.gyro.z;
 
-    this->imu_meas.lin_accel.x = lin_accel[0];
-    this->imu_meas.lin_accel.y = lin_accel[1];
+    this->imu_meas.lin_accel.x = lin_accel[0]; //加速度x，y方向的bias没有减去, 因为在integrateIMU()中只用了角速度来预测delta_rot，没有用加速度预测delta_p
+    this->imu_meas.lin_accel.y = lin_accel[1]; //原因可能有二： imu加速度噪声比角速度噪声大很多； 没有使用当前scan的velocity, 也就没有用去重力后的加速度值。
     this->imu_meas.lin_accel.z = lin_accel[2];
 
     // Store into circular buffer
     this->mtx_imu.lock();
-    this->imu_buffer.push_front(this->imu_meas);
+    this->imu_buffer.push_front(this->imu_meas); //头部的imu data最新，尾部最老
     this->mtx_imu.unlock();
 
   }
@@ -837,7 +837,8 @@ void dlo::OdomNode::getNextPose() {
   this->gicp.align(*aligned, this->T_s2s);
 
   // Get final transformation in global frame
-  this->T = this->gicp.getFinalTransformation();
+  this->T = this->gicp.getFinalTransformation(); //curr scan与local map匹配的结果
+  //q and -q represent the same rotation
 
   // Update the S2S transform for next propagation
   this->T_s2s_prev = this->T;
@@ -949,8 +950,8 @@ void dlo::OdomNode::propagateS2S(Eigen::Matrix4f T) {
 
 void dlo::OdomNode::propagateS2M() {
 
-  this->pose   << this->T(0,3), this->T(1,3), this->T(2,3);
-  this->rotSO3 << this->T(0,0), this->T(0,1), this->T(0,2),
+  this->pose   << this->T(0,3), this->T(1,3), this->T(2,3); //curr scan position in map
+  this->rotSO3 << this->T(0,0), this->T(0,1), this->T(0,2), //curr scan rot in map
                   this->T(1,0), this->T(1,1), this->T(1,2),
                   this->T(2,0), this->T(2,1), this->T(2,2);
 
@@ -1015,7 +1016,6 @@ void dlo::OdomNode::computeSpaciousness() {
  **/
 
 void dlo::OdomNode::computeConvexHull() {
-
   // at least 4 keyframes for convex hull
   if (this->num_keyframes < 4) {
     return;
@@ -1029,7 +1029,7 @@ void dlo::OdomNode::computeConvexHull() {
     pt.x = k.first.first[0];
     pt.y = k.first.first[1];
     pt.z = k.first.first[2];
-    cloud->push_back(pt);
+    cloud->push_back(pt); //cloud[i]一一对应keyframes[i]？
   }
 
   // calculate the convex hull of the point cloud
@@ -1102,7 +1102,7 @@ void dlo::OdomNode::updateKeyframes() {
   // calculate difference in pose and rotation to all poses in trajectory
   float closest_d = std::numeric_limits<float>::infinity();
   int closest_idx = 0;
-  int keyframes_idx = 0;
+  int keyframes_idx = 0; //没有什么用处
 
   int num_nearby = 0;
 
@@ -1134,9 +1134,9 @@ void dlo::OdomNode::updateKeyframes() {
   float dd = sqrt( pow(this->pose[0] - closest_pose[0], 2) + pow(this->pose[1] - closest_pose[1], 2) + pow(this->pose[2] - closest_pose[2], 2) );
 
   // calculate difference in orientation
-  Eigen::Quaternionf dq = this->rotq * (closest_pose_r.inverse());
+  Eigen::Quaternionf dq = this->rotq * (closest_pose_r.inverse()); //全局的delta_rot, not local delta_rot.
 
-  float theta_rad = atan2(sqrt( pow(dq.x(), 2) + pow(dq.y(), 2) + pow(dq.z(), 2) ), dq.w());
+  float theta_rad = 2. * atan2(sqrt( pow(dq.x(), 2) + pow(dq.y(), 2) + pow(dq.z(), 2) ), dq.w());
   float theta_deg = theta_rad * (180.0/M_PI);
 
   // update keyframe
@@ -1157,7 +1157,7 @@ void dlo::OdomNode::updateKeyframes() {
     ++this->num_keyframes;
 
     // voxelization for submap
-    if (this->vf_submap_use_) {
+    if (this->vf_submap_use_) { //每一帧scan在前面preprocessPoints()中已经filter过一次
       this->vf_submap.setInputCloud(this->current_scan_t);
       this->vf_submap.filter(*this->current_scan_t);
     }
@@ -1166,12 +1166,12 @@ void dlo::OdomNode::updateKeyframes() {
     this->keyframes.push_back(std::make_pair(std::make_pair(this->pose, this->rotq), this->current_scan_t));
 
     // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be overwritten by setInputSources())
+    *this->keyframes_cloud += *this->current_scan_t;
+    *this->keyframe_cloud = *this->current_scan_t;
+
     this->gicp_s2s.setInputSource(this->keyframe_cloud);
     this->gicp_s2s.calculateSourceCovariances();
     this->keyframe_normals.push_back(this->gicp_s2s.getSourceCovariances());
-
-    *this->keyframes_cloud += *this->current_scan_t;
-    *this->keyframe_cloud = *this->current_scan_t;
 
     this->publish_keyframe_thread = std::thread( &dlo::OdomNode::publishKeyframe, this );
     this->publish_keyframe_thread.detach();
@@ -1207,13 +1207,13 @@ void dlo::OdomNode::setAdaptiveParams() {
 /**
  * Push Submap Keyframe Indices
  **/
-void dlo::OdomNode::pushSubmapIndices(std::vector<float> dists, int k) {
+void dlo::OdomNode::pushSubmapIndices(std::vector<float> dists, int k, std::vector<int> frames) {
 
   // maintain max heap of at most k elements
-  std::priority_queue<float> pq;
+  std::priority_queue<float> pq; //默认排序是less，也就说大顶堆，元素大的优先级高
 
   for (auto d : dists) {
-    if (pq.size() >= k && pq.top() > d) {
+    if (pq.size() >= k && pq.top() > d) {//堆顶元素，所以是最大值
       pq.push(d);
       pq.pop();
     } else if (pq.size() < k) {
@@ -1227,7 +1227,7 @@ void dlo::OdomNode::pushSubmapIndices(std::vector<float> dists, int k) {
   // get all elements smaller or equal to the kth smallest element
   for (int i = 0; i < dists.size(); ++i) {
     if (dists[i] <= kth_element)
-      this->submap_kf_idx_curr.push_back(i);
+      this->submap_kf_idx_curr.push_back(frames[i]);
   }
 
 }
@@ -1237,7 +1237,7 @@ void dlo::OdomNode::pushSubmapIndices(std::vector<float> dists, int k) {
  * Get Submap using Nearest Neighbor Keyframes
  **/
 
-void dlo::OdomNode::getSubmapKeyframes() {
+void dlo::OdomNode::getSubmapKeyframes() {//文章E节
 
   // clear vector of keyframe indices to use for submap
   this->submap_kf_idx_curr.clear();
@@ -1248,36 +1248,40 @@ void dlo::OdomNode::getSubmapKeyframes() {
 
   // calculate distance between current pose and poses in keyframe set
   std::vector<float> ds;
+  std::vector<int> keyframe_nn; int i=0;
+  Eigen::Vector3f curr_pose = this->T_s2s.block(0,3,3,1);
+
   for (const auto& k : this->keyframes) {
-    float d = sqrt( pow(this->pose[0] - k.first.first[0], 2) + pow(this->pose[1] - k.first.first[1], 2) + pow(this->pose[2] - k.first.first[2], 2) );
+    float d = sqrt( pow(curr_pose[0] - k.first.first[0], 2) + pow(curr_pose[1] - k.first.first[1], 2) + pow(curr_pose[2] - k.first.first[2], 2) );
     ds.push_back(d);
+    keyframe_nn.push_back(i); i++;
   }
 
   // get indices for top K nearest neighbor keyframe poses
-  this->pushSubmapIndices(ds, this->submap_knn_);
+  this->pushSubmapIndices(ds, this->submap_knn_, keyframe_nn);
 
   //
   // TOP K NEAREST NEIGHBORS FROM CONVEX HULL
   //
 
   // get convex hull indices
-  this->computeConvexHull();
+  this->computeConvexHull(); //keyframe_convex: 用所有关键帧的位置作为点云，计算构成凸包形状的keyframes的index
 
   // get distances for each keyframe on convex hull
   std::vector<float> convex_ds;
   for (const auto& c : this->keyframe_convex) {
-    convex_ds.push_back(ds[c]);
+    convex_ds.push_back(ds[c]); //凸包keyframes到当前帧的距离值
   }
 
   // get indicies for top kNN for convex hull
-  this->pushSubmapIndices(convex_ds, this->submap_kcv_);
+  this->pushSubmapIndices(convex_ds, this->submap_kcv_, this->keyframe_convex);
 
   //
   // TOP K NEAREST NEIGHBORS FROM CONCAVE HULL
   //
 
   // get concave hull indices
-  this->computeConcaveHull();
+  this->computeConcaveHull(); //类似上面，凹包检测。keyframe_concave：用所有关键帧的位置作为点云，计算构成凸包形状的keyframes的index
 
   // get distances for each keyframe on concave hull
   std::vector<float> concave_ds;
@@ -1286,7 +1290,7 @@ void dlo::OdomNode::getSubmapKeyframes() {
   }
 
   // get indicies for top kNN for convex hull
-  this->pushSubmapIndices(concave_ds, this->submap_kcc_);
+  this->pushSubmapIndices(concave_ds, this->submap_kcc_, this->keyframe_concave);
 
   //
   // BUILD SUBMAP
